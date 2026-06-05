@@ -1,4 +1,4 @@
-streamlithttps://github.com/vamosfluzao02-ui/DiarioTricolor/tree/main
+streamlit
 pandas
 requests
 plotly
