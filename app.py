@@ -24,18 +24,31 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-[data-testid="stMetric"] {
-    background-color: white;
-    border-radius: 15px;
-    padding: 20px;
-    box-shadow: 0px 4px 15px rgba(0,0,0,0.10);
+
+/* NÚMEROS DOS METRICS */
+[data-testid="stMetricValue"] {
+    color: #7A1531 !important;  /* grená */
+    font-weight: 700 !important;
 }
-.main { background-color: #f4f6f8; }
-h1 { color: #7A1531; }
-h2, h3 { color: #0E7A32; }
-section[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #0E7A32 0%, #7A1531 100%);
+
+/* LABEL DOS METRICS */
+[data-testid="stMetricLabel"] {
+    color: #7A1531 !important;
+    opacity: 0.9;
 }
+
+/* VALORES GERAIS (tabelas e textos fortes) */
+div[data-testid="stDataFrame"] {
+    color: #7A1531;
+}
+
+/* MELHOR VISUAL NO MODO ESCURO MOBILE */
+@media (prefers-color-scheme: dark) {
+    [data-testid="stMetricValue"] {
+        color: #ff3b5c !important; /* grená mais vivo no dark */
+    }
+}
+
 </style>
 """, unsafe_allow_html=True)
 
