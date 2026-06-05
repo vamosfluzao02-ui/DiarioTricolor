@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import requests
 import plotly.express as px
 import re
@@ -31,6 +30,25 @@ st.markdown("""
     padding: 20px;
     box-shadow: 0px 4px 15px rgba(0,0,0,0.10);
 }
+
+/* Número principal do metric — grená em qualquer tema */
+[data-testid="stMetricValue"] > div {
+    color: #7A1531 !important;
+    font-weight: 700 !important;
+}
+
+/* Label acima do número */
+[data-testid="stMetricLabel"] > div > p {
+    color: #7A1531 !important;
+    font-weight: 600 !important;
+}
+
+/* Delta (variação) — mantém legível nos dois temas */
+[data-testid="stMetricDelta"] > div {
+    color: #0E7A32 !important;
+    font-weight: 600 !important;
+}
+
 .main { background-color: #f4f6f8; }
 h1 { color: #7A1531; }
 h2, h3 { color: #0E7A32; }
@@ -101,47 +119,6 @@ def carregar_posts():
         st.error(f"Erro ao carregar posts: {e}")
         return pd.DataFrame()
 
-@st.cache_data(ttl=3600)
-def carregar_historico_seguidores():
-    """
-    Busca histórico diário de seguidores via Instagram Insights API.
-    'follower_count' retorna GANHOS diários (não total acumulado).
-    Retorna (DataFrame, erro_str|None).
-    """
-    try:
-        since = int((datetime.now() - timedelta(days=90)).timestamp())
-        until = int(datetime.now().timestamp())
-        url = (
-            f"https://graph.facebook.com/v19.0/{IG_USER_ID}/insights"
-            f"?metric=follower_count"
-            f"&period=day"
-            f"&since={since}"
-            f"&until={until}"
-            f"&access_token={ACCESS_TOKEN}"
-        )
-        response = requests.get(url, timeout=10)
-        dados = response.json()
-
-        if "error" in dados:
-            return pd.DataFrame(), dados["error"].get("message", "Erro da API")
-
-        if "data" not in dados or not dados["data"]:
-            return pd.DataFrame(), "API retornou vazio"
-
-        valores = dados["data"][0].get("values", [])
-        if not valores:
-            return pd.DataFrame(), "Nenhum valor retornado"
-
-        df = pd.DataFrame(valores)
-        df = df.rename(columns={"value": "Seguidores", "end_time": "Data"})
-        df["Data"] = pd.to_datetime(df["Data"], utc=True).dt.tz_convert("America/Sao_Paulo").dt.normalize()
-        df["Data"] = df["Data"].dt.tz_localize(None)
-        df = df.sort_values("Data").reset_index(drop=True)
-        return df, None
-
-    except Exception as e:
-        return pd.DataFrame(), str(e)
-
 @st.cache_data(ttl=300)
 def noticias_ge_fluminense():
     url = "https://ge.globo.com/futebol/times/fluminense/"
@@ -203,13 +180,12 @@ if not posts.empty:
 # TABS PRINCIPAIS
 # ======================================================
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📈 Insights",
     "📰 Notícias (GE)",
     "🔥 Editor IA",
     "🚨 Breaking & Rumores",
-    "🤖 GE Bot Live",
-    "📊 Crescimento"
+    "🤖 GE Bot Live"
 ])
 
 # ======================================================
@@ -685,169 +661,3 @@ with tab5:
         st.dataframe(df_ge_live, use_container_width=True)
     else:
         st.warning("Sem notícias no momento.")
-
-# ======================================================
-# TAB 6 — CRESCIMENTO
-# ======================================================
-
-with tab6:
-    st.title("📊 Crescimento da Conta")
-
-    seguidores_atual = perfil.get("followers_count", 0)
-    seguindo_atual = perfil.get("follows_count", 0)
-    total_posts_perfil = perfil.get("media_count", 0)
-
-    # ── Métricas de cabeçalho ──────────────────────────
-    c1, c2, c3 = st.columns(3)
-    c1.metric("👥 Seguidores Hoje", f"{seguidores_atual:,}".replace(",", "."))
-    c2.metric("➡️ Seguindo", f"{seguindo_atual:,}".replace(",", "."))
-    c3.metric("📸 Total de Posts", total_posts_perfil)
-
-    st.divider()
-
-    # ── SEÇÃO 1: Seguidores históricos via Insights API ──
-    st.subheader("📈 Evolução de Seguidores")
-
-    hist_seg, erro_seg = carregar_historico_seguidores()
-
-    if erro_seg:
-        st.error(f"❌ Erro ao buscar histórico de seguidores: {erro_seg}")
-
-    elif hist_seg.empty:
-        st.warning("A API não retornou dados de seguidores. Verifique se a permissão instagram_manage_insights está ativa no token.")
-
-    else:
-        # Reconstruir curva acumulada: ganhos diários -> total ao longo do tempo
-        ganhos = hist_seg["Seguidores"].values
-        total_inicio = seguidores_atual - int(ganhos.sum())
-        acumulado = [int(total_inicio + ganhos[:i+1].sum()) for i in range(len(ganhos))]
-        hist_seg = hist_seg.copy()
-        hist_seg["Total"] = acumulado
-
-        # Variações para delta nos cards
-        ganho_7d  = int(hist_seg.tail(7)["Seguidores"].sum())
-        ganho_30d = int(hist_seg.tail(30)["Seguidores"].sum())
-        media_dia = round(float(hist_seg["Seguidores"].mean()), 1)
-        melhor_dia_seg = hist_seg.loc[hist_seg["Seguidores"].idxmax()]
-
-        # Cards de resumo
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("📅 Ganho últimos 7 dias",  f"+{ganho_7d:,}".replace(",", "."))
-        c2.metric("📅 Ganho últimos 30 dias", f"+{ganho_30d:,}".replace(",", "."))
-        c3.metric("📊 Média diária",           f"+{media_dia}")
-        c4.metric("🏆 Melhor dia",             melhor_dia_seg["Data"].strftime("%d/%m"),
-                  delta=f"+{int(melhor_dia_seg['Seguidores'])} nesse dia")
-
-        # Gráfico de linha — curva acumulada
-        fig_seg = px.line(
-            hist_seg, x="Data", y="Total",
-            title="📈 Total de seguidores ao longo do tempo (últimos 90 dias)",
-            markers=True,
-            labels={"Total": "Seguidores", "Data": "Data"},
-            color_discrete_sequence=["#0E7A32"]
-        )
-        fig_seg.update_traces(fill="tozeroy", fillcolor="rgba(14,122,50,0.08)")
-        fig_seg.update_layout(hovermode="x unified")
-        st.plotly_chart(fig_seg, use_container_width=True)
-
-        # Gráfico de barras — ganho diário
-        fig_ganho = px.bar(
-            hist_seg, x="Data", y="Seguidores",
-            title="🟢 Novos seguidores por dia",
-            labels={"Seguidores": "Novos seguidores"},
-            color="Seguidores",
-            color_continuous_scale=["#c8e6c9", "#0E7A32"]
-        )
-        fig_ganho.update_layout(coloraxis_showscale=False)
-        st.plotly_chart(fig_ganho, use_container_width=True)
-
-        # Média móvel 7 dias
-        hist_seg["Media7d"] = hist_seg["Seguidores"].rolling(7, min_periods=1).mean()
-        fig_mm = px.line(
-            hist_seg, x="Data", y="Media7d",
-            title="📊 Média móvel (7 dias) — ritmo de crescimento",
-            labels={"Media7d": "Média móvel (seguidores/dia)"},
-            color_discrete_sequence=["#7A1531"]
-        )
-        st.plotly_chart(fig_mm, use_container_width=True)
-
-        # Tabela detalhada expansível
-        with st.expander("📋 Ver tabela completa de seguidores por dia"):
-            st.dataframe(
-                hist_seg[["Data", "Seguidores", "Total"]].rename(
-                    columns={"Seguidores": "Novos no dia", "Total": "Total acumulado"}
-                ).sort_values("Data", ascending=False),
-                use_container_width=True
-            )
-
-    st.divider()
-
-    # ── SEÇÃO 2: Posts por dia ──────────────────────────
-    st.subheader("📸 Posts Publicados por Dia")
-
-    if not posts.empty and "Data" in posts.columns:
-        posts_por_dia = posts.groupby("Data").size().reset_index(name="Posts")
-        posts_por_dia = posts_por_dia.sort_values("Data")
-
-        fig_posts_dia = px.bar(
-            posts_por_dia, x="Data", y="Posts",
-            title="📸 Quantidade de posts por dia",
-            color="Posts",
-            color_continuous_scale=["#e8f5e9", "#0E7A32"],
-            labels={"Posts": "Nº de Posts"}
-        )
-        fig_posts_dia.update_layout(showlegend=False)
-        st.plotly_chart(fig_posts_dia, use_container_width=True)
-
-        # Posts por dia da semana
-        if "DiaSemana" in posts.columns:
-            ordem_dias = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
-            posts_semana = posts.groupby("DiaSemana").size().reset_index(name="Posts")
-            posts_semana["DiaSemana"] = pd.Categorical(posts_semana["DiaSemana"], categories=ordem_dias, ordered=True)
-            posts_semana = posts_semana.sort_values("DiaSemana")
-
-            fig_semana = px.bar(
-                posts_semana, x="DiaSemana", y="Posts",
-                title="📅 Posts por dia da semana",
-                color="Posts",
-                color_continuous_scale=["#e8f5e9", "#7A1531"],
-            )
-            st.plotly_chart(fig_semana, use_container_width=True)
-
-        # Posts por formato ao longo do tempo
-        if "Formato" in posts.columns:
-            posts_formato_dia = posts.groupby(["Data", "Formato"]).size().reset_index(name="Posts")
-            fig_formato_linha = px.line(
-                posts_formato_dia, x="Data", y="Posts", color="Formato",
-                title="📊 Frequência de publicação por formato",
-                markers=True
-            )
-            st.plotly_chart(fig_formato_linha, use_container_width=True)
-
-        # Métricas de frequência
-        st.divider()
-        total_dias = (posts["Data"].max() - posts["Data"].min()).days + 1
-        media_posts_dia = round(len(posts) / max(total_dias, 1), 2)
-        dia_mais_ativo = posts_por_dia.loc[posts_por_dia["Posts"].idxmax()]
-        mes_mais_ativo = posts.groupby(posts["Data"].dt.to_period("M")).size().idxmax()
-
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("📊 Média posts/dia", media_posts_dia)
-        c2.metric("🏆 Dia mais ativo", dia_mais_ativo["Data"].strftime("%d/%m"))
-        c3.metric("📅 Posts nesse dia", int(dia_mais_ativo["Posts"]))
-        c4.metric("🗓️ Mês mais ativo", str(mes_mais_ativo))
-
-        # Tabela resumo por mês
-        st.subheader("🗓️ Resumo mensal de publicações")
-        posts_mes = posts.copy()
-        posts_mes["Mês"] = posts_mes["Data"].dt.to_period("M").astype(str)
-        resumo_mes = posts_mes.groupby("Mês").agg(
-            Posts=("id", "count"),
-            Likes=("like_count", "sum"),
-            Comentarios=("comments_count", "sum")
-        ).reset_index()
-        resumo_mes["Engajamento Total"] = resumo_mes["Likes"] + resumo_mes["Comentarios"]
-        st.dataframe(resumo_mes.sort_values("Mês", ascending=False), use_container_width=True)
-
-    else:
-        st.warning("Sem dados de posts disponíveis para exibir.")
