@@ -206,11 +206,11 @@ if not posts.empty:
 
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📈 Insights",
-    "📊 Crescimento",
     "📰 Notícias (GE)",
-    "🤖 GE Bot Live",
     "🔥 Editor IA",
-    "🚨 Breaking & Rumores"
+    "🚨 Breaking & Rumores",
+    "🤖 GE Bot Live",
+    "📊 Crescimento"
 ])
 
 # ======================================================
