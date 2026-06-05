@@ -1,0 +1,6 @@
+streamlithttps://github.com/vamosfluzao02-ui/DiarioTricolor/tree/main
+pandas
+requests
+plotly
+beautifulsoup4
+lxml
