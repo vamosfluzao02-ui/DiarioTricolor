@@ -17,46 +17,6 @@ from datetime import datetime, timedelta
 ACCESS_TOKEN = "EAAYDRMk29tUBRulDdppK5QBaM9bpXgFbpsMpBvObc54tGg0ZA5FZCkOqW9BjsOCJV6c8N9sdOplIsPHebaZB4AUWYyxcldpG4Sm76NZAtgmZAyZAnsM0ZB3ZCHHKZCU63XOpiKEwZCK2MmiMDw7bPQRxPPaWZB5Se7WmOd3zCqZC9BU3eehS9RhJezljezw30Q63vtJkwe7JhqTBMKF1ZABM0"
 IG_USER_ID = "17841466855594663"
 
-HISTORICO_PATH = "historico_seguidores.csv"
-
-# ======================================================
-# SNAPSHOT DIÁRIO DE SEGUIDORES
-# ======================================================
-
-def registrar_snapshot(followers_count: int):
-    """
-    Salva o total de seguidores do dia atual no CSV local.
-    Só grava uma vez por dia — se já existir registro de hoje, ignora.
-    """
-    hoje = datetime.now().strftime("%Y-%m-%d")
-
-    try:
-        df = pd.read_csv(HISTORICO_PATH, parse_dates=["Data"])
-        df["Data"] = pd.to_datetime(df["Data"]).dt.strftime("%Y-%m-%d")
-    except FileNotFoundError:
-        df = pd.DataFrame(columns=["Data", "Seguidores"])
-
-    if hoje in df["Data"].values:
-        return  # já registrou hoje
-
-    novo = pd.DataFrame([{"Data": hoje, "Seguidores": followers_count}])
-    df = pd.concat([df, novo], ignore_index=True)
-    df.to_csv(HISTORICO_PATH, index=False)
-
-
-def carregar_historico_local():
-    """
-    Lê o CSV histórico e retorna DataFrame com Data e Seguidores.
-    Calcula Ganho (diferença dia a dia) para os gráficos.
-    """
-    try:
-        df = pd.read_csv(HISTORICO_PATH, parse_dates=["Data"])
-        df = df.sort_values("Data").reset_index(drop=True)
-        df["Ganho"] = df["Seguidores"].diff().fillna(0).astype(int)
-        return df
-    except FileNotFoundError:
-        return pd.DataFrame()
-
 st.set_page_config(
     page_title="Diário Tricolor",
     page_icon="📊",
@@ -71,6 +31,25 @@ st.markdown("""
     padding: 20px;
     box-shadow: 0px 4px 15px rgba(0,0,0,0.10);
 }
+
+/* Número principal — grená fixo em dark e light mode */
+[data-testid="stMetricValue"] > div {
+    color: #7A1531 !important;
+    font-weight: 700 !important;
+}
+
+/* Label acima do número */
+[data-testid="stMetricLabel"] > div > p {
+    color: #7A1531 !important;
+    font-weight: 600 !important;
+}
+
+/* Delta (variação ↑↓) */
+[data-testid="stMetricDelta"] > div {
+    color: #0E7A32 !important;
+    font-weight: 600 !important;
+}
+
 .main { background-color: #f4f6f8; }
 h1 { color: #7A1531; }
 h2, h3 { color: #0E7A32; }
@@ -206,10 +185,6 @@ def noticias_ge_fluminense():
 
 perfil = carregar_perfil()
 posts = carregar_posts()
-
-# Registra snapshot do dia (roda silenciosamente, grava só 1x por dia)
-if perfil.get("followers_count", 0) > 0:
-    registrar_snapshot(perfil["followers_count"])
 
 if not posts.empty:
     if "Data" in posts.columns:
@@ -749,47 +724,45 @@ with tab6:
 
     st.divider()
 
-    # ── SEÇÃO 1: Seguidores históricos — snapshot diário local ──
+    # ── SEÇÃO 1: Seguidores históricos via Insights API ──
     st.subheader("📈 Evolução de Seguidores")
 
-    hist_local = carregar_historico_local()
+    hist_seg, erro_seg = carregar_historico_seguidores()
 
-    if hist_local.empty or len(hist_local) < 2:
-        st.info(
-            "📸 O histórico está sendo construído automaticamente! "
-            "A cada dia que o app rodar, um novo ponto é salvo. "
-            "Volte amanhã para ver a primeira variação — quanto mais dias, mais rico o gráfico."
-        )
-        if not hist_local.empty:
-            st.success(f"✅ Primeiro registro salvo: **{hist_local.iloc[0]['Data'].strftime('%d/%m/%Y')}** — "
-                       f"{int(hist_local.iloc[0]['Seguidores']):,} seguidores".replace(",", "."))
+    if erro_seg:
+        st.error(f"❌ Erro ao buscar histórico de seguidores: {erro_seg}")
+
+    elif hist_seg.empty:
+        st.warning("A API não retornou dados de seguidores. Verifique se a permissão instagram_manage_insights está ativa no token.")
+
     else:
-        # Cards de resumo
-        ganho_7d  = int(hist_local.tail(7)["Ganho"].sum())
-        ganho_30d = int(hist_local.tail(30)["Ganho"].sum())
-        media_dia = round(float(hist_local["Ganho"].iloc[1:].mean()), 1)  # ignora o primeiro (diff=0)
-        melhor_idx = hist_local["Ganho"].idxmax()
-        melhor_dia_seg = hist_local.loc[melhor_idx]
-        total_dias_hist = len(hist_local)
+        # Reconstruir curva acumulada: ganhos diários -> total ao longo do tempo
+        ganhos = hist_seg["Seguidores"].values
+        total_inicio = seguidores_atual - int(ganhos.sum())
+        acumulado = [int(total_inicio + ganhos[:i+1].sum()) for i in range(len(ganhos))]
+        hist_seg = hist_seg.copy()
+        hist_seg["Total"] = acumulado
 
+        # Variações para delta nos cards
+        ganho_7d  = int(hist_seg.tail(7)["Seguidores"].sum())
+        ganho_30d = int(hist_seg.tail(30)["Seguidores"].sum())
+        media_dia = round(float(hist_seg["Seguidores"].mean()), 1)
+        melhor_dia_seg = hist_seg.loc[hist_seg["Seguidores"].idxmax()]
+
+        # Cards de resumo
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("📅 Ganho últimos 7 dias",  f"+{ganho_7d:,}".replace(",", "."))
         c2.metric("📅 Ganho últimos 30 dias", f"+{ganho_30d:,}".replace(",", "."))
         c3.metric("📊 Média diária",           f"+{media_dia}")
-        c4.metric("🏆 Melhor dia",
-                  melhor_dia_seg["Data"].strftime("%d/%m"),
-                  delta=f"+{int(melhor_dia_seg['Ganho'])} seguidores")
+        c4.metric("🏆 Melhor dia",             melhor_dia_seg["Data"].strftime("%d/%m"),
+                  delta=f"+{int(melhor_dia_seg['Seguidores'])} nesse dia")
 
-        st.caption(f"📂 Histórico com {total_dias_hist} dias registrados — de "
-                   f"{hist_local['Data'].min().strftime('%d/%m/%Y')} até "
-                   f"{hist_local['Data'].max().strftime('%d/%m/%Y')}")
-
-        # Gráfico de linha — total acumulado real
+        # Gráfico de linha — curva acumulada
         fig_seg = px.line(
-            hist_local, x="Data", y="Seguidores",
-            title="📈 Total de seguidores ao longo do tempo",
+            hist_seg, x="Data", y="Total",
+            title="📈 Total de seguidores ao longo do tempo (últimos 90 dias)",
             markers=True,
-            labels={"Seguidores": "Total de Seguidores", "Data": "Data"},
+            labels={"Total": "Seguidores", "Data": "Data"},
             color_discrete_sequence=["#0E7A32"]
         )
         fig_seg.update_traces(fill="tozeroy", fillcolor="rgba(14,122,50,0.08)")
@@ -797,35 +770,31 @@ with tab6:
         st.plotly_chart(fig_seg, use_container_width=True)
 
         # Gráfico de barras — ganho diário
-        hist_ganho = hist_local[hist_local["Ganho"] != 0].copy()
-        if not hist_ganho.empty:
-            fig_ganho = px.bar(
-                hist_ganho, x="Data", y="Ganho",
-                title="🟢 Novos seguidores por dia",
-                labels={"Ganho": "Novos seguidores"},
-                color="Ganho",
-                color_continuous_scale=["#c8e6c9", "#0E7A32"]
-            )
-            fig_ganho.update_layout(coloraxis_showscale=False)
-            st.plotly_chart(fig_ganho, use_container_width=True)
+        fig_ganho = px.bar(
+            hist_seg, x="Data", y="Seguidores",
+            title="🟢 Novos seguidores por dia",
+            labels={"Seguidores": "Novos seguidores"},
+            color="Seguidores",
+            color_continuous_scale=["#c8e6c9", "#0E7A32"]
+        )
+        fig_ganho.update_layout(coloraxis_showscale=False)
+        st.plotly_chart(fig_ganho, use_container_width=True)
 
-        # Média móvel 7 dias (só se tiver dados suficientes)
-        if len(hist_local) >= 7:
-            hist_local = hist_local.copy()
-            hist_local["Media7d"] = hist_local["Ganho"].rolling(7, min_periods=1).mean()
-            fig_mm = px.line(
-                hist_local, x="Data", y="Media7d",
-                title="📊 Média móvel (7 dias) — ritmo de crescimento",
-                labels={"Media7d": "Média (seguidores/dia)"},
-                color_discrete_sequence=["#7A1531"]
-            )
-            st.plotly_chart(fig_mm, use_container_width=True)
+        # Média móvel 7 dias
+        hist_seg["Media7d"] = hist_seg["Seguidores"].rolling(7, min_periods=1).mean()
+        fig_mm = px.line(
+            hist_seg, x="Data", y="Media7d",
+            title="📊 Média móvel (7 dias) — ritmo de crescimento",
+            labels={"Media7d": "Média móvel (seguidores/dia)"},
+            color_discrete_sequence=["#7A1531"]
+        )
+        st.plotly_chart(fig_mm, use_container_width=True)
 
-        # Tabela expansível
-        with st.expander("📋 Ver tabela completa dia a dia"):
+        # Tabela detalhada expansível
+        with st.expander("📋 Ver tabela completa de seguidores por dia"):
             st.dataframe(
-                hist_local[["Data", "Seguidores", "Ganho"]].rename(
-                    columns={"Seguidores": "Total no dia", "Ganho": "Ganho no dia"}
+                hist_seg[["Data", "Seguidores", "Total"]].rename(
+                    columns={"Seguidores": "Novos no dia", "Total": "Total acumulado"}
                 ).sort_values("Data", ascending=False),
                 use_container_width=True
             )
